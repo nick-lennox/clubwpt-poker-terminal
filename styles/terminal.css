@@ -1,0 +1,93 @@
+/* ClubWPT Poker Terminal - Light DOM Styles (badges only) */
+/* Panel styles live inside shadow DOM in terminal-ui.js */
+
+#wpt-terminal-host {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 999999;
+}
+
+/* ========== PLAYER HUD BADGES ========== */
+
+.wpt-player-badge {
+  position: fixed;
+  background: rgba(12, 12, 16, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: auto;
+  z-index: 999998;
+  cursor: default;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.wpt-player-badge:hover {
+  border-color: #f59e0b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 999999;
+}
+
+.wpt-player-badge .wpt-badge-stats {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  color: #e2e8f0;
+}
+
+.wpt-stat-vpip { color: #22c55e; }
+.wpt-stat-pfr { color: #3b82f6; }
+.wpt-stat-af { color: #f59e0b; }
+.wpt-stat-hands { color: #64748b; font-size: 9px; }
+
+.wpt-player-type {
+  font-size: 8px;
+  padding: 0 4px;
+  border-radius: 8px;
+  margin-left: 3px;
+  font-weight: 600;
+}
+
+.wpt-type-nit  { background: rgba(100, 116, 139, 0.3); color: #94a3b8; }
+.wpt-type-tag  { background: rgba(34, 197, 94, 0.2);   color: #22c55e; }
+.wpt-type-lag  { background: rgba(245, 158, 11, 0.2);  color: #f59e0b; }
+.wpt-type-fish { background: rgba(239, 68, 68, 0.2);   color: #ef4444; }
+.wpt-type-reg  { background: rgba(59, 130, 246, 0.2);  color: #3b82f6; }
+
+.wpt-badge-tooltip {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(12, 12, 16, 0.95);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 10px;
+  white-space: nowrap;
+  margin-bottom: 4px;
+  z-index: 1000000;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.wpt-player-badge:hover .wpt-badge-tooltip { display: block; }
+
+.wpt-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wpt-tooltip-label { color: #64748b; }
+.wpt-tooltip-value { color: #e2e8f0; font-weight: 600; }

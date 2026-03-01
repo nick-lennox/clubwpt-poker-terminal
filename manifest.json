@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "ClubWPT Poker Terminal",
+  "version": "1.0.0",
+  "description": "Real-time poker analytics HUD for ClubWPT Gold",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://clubwptgold.com/*",
+    "https://*.clubwptgold.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://clubwptgold.com/game/*"
+      ],
+      "js": [
+        "src/content/bridge-isolated.js"
+      ],
+      "run_at": "document_idle",
+      "world": "ISOLATED"
+    },
+    {
+      "matches": [
+        "https://clubwptgold.com/game/*"
+      ],
+      "js": [
+        "src/content/config.js",
+        "src/content/card-utils.js",
+        "src/content/gto-ranges.js",
+        "src/workers/hand-evaluator.js",
+        "src/content/cocos-scraper.js",
+        "src/content/hand-tracker.js",
+        "src/storage/storage-manager.js",
+        "src/content/player-stats.js",
+        "src/content/equity-bridge.js",
+        "src/content/action-advisor.js",
+        "src/content/outs-analyzer.js",
+        "src/content/board-analyzer.js",
+        "src/content/vulnerability-analyzer.js",
+        "src/content/session-tracker.js",
+        "src/content/terminal-ui.js",
+        "src/content/main.js"
+      ],
+      "css": [
+        "styles/terminal.css"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/workers/equity-worker.js",
+        "src/workers/hand-evaluator.js"
+      ],
+      "matches": [
+        "https://clubwptgold.com/*"
+      ]
+    }
+  ]
+}

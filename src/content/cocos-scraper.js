@@ -15,6 +15,10 @@ var CocosScraper = (function() {
     this._ready = false;
     this._boardIntrospectDone = false;
     this._boardIntrospectCounter = 0;
+    // Tournament mode
+    this._isTournament = false;
+    this._holdemRoomComp = null;  // Holdem_Room_ts component
+    this._tournamentPlayerNodes = null; // playerNodes array from Holdem_Room_ts
   }
 
   // Event emitter
@@ -30,28 +34,57 @@ var CocosScraper = (function() {
     }
   };
 
-  // Initialize - find the Cocos scene graph nodes
+  // Initialize - find the Cocos scene graph nodes (supports cash + tournament)
   CocosScraper.prototype._initNodes = function() {
     try {
       if (typeof cc === 'undefined' || !cc.director) return false;
       var scene = cc.director.getScene();
       if (!scene) return false;
 
+      // ═══ Strategy 1: Cash game path (Scene → gameMain_panel) ═══
       var sceneNode = scene.getChildByName(WPT.PATHS.SCENE);
-      if (!sceneNode) return false;
+      if (sceneNode) {
+        this._gameMain = sceneNode.getChildByName(WPT.PATHS.GAME_MAIN);
+        if (this._gameMain) {
+          this._gameCtrl = this._gameMain.getComponent('GameControl');
+          this._seatPanel = this._gameMain.getChildByName(WPT.PATHS.SEAT_PANEL);
 
-      this._gameMain = sceneNode.getChildByName(WPT.PATHS.GAME_MAIN);
-      if (!this._gameMain) return false;
+          if (this._gameCtrl && this._gameCtrl._pokerRoom) {
+            this._room = this._gameCtrl._pokerRoom;
+          }
 
-      this._gameCtrl = this._gameMain.getComponent('GameControl');
-      this._seatPanel = this._gameMain.getChildByName(WPT.PATHS.SEAT_PANEL);
-
-      if (this._gameCtrl && this._gameCtrl._pokerRoom) {
-        this._room = this._gameCtrl._pokerRoom;
+          this._isTournament = false;
+          this._ready = !!(this._gameCtrl && this._seatPanel);
+          if (this._ready) return true;
+        }
       }
 
-      this._ready = !!(this._gameCtrl && this._seatPanel);
-      return this._ready;
+      // ═══ Strategy 2: Tournament path (Canvas → MultipleGame → holdem_room) ═══
+      var canvas = scene.getChildByName('Canvas');
+      if (canvas) {
+        var mgComp = canvas.getComponent('MultipleGame');
+        if (mgComp && mgComp._roomNodes && mgComp._roomNodes.length > 0) {
+          var roomNode = mgComp._roomNodes[0]; // holdem_game_view
+          if (roomNode) {
+            var holdemRoom = roomNode.getChildByName('holdem_room');
+            if (holdemRoom) {
+              var hrComp = holdemRoom.getComponent('Holdem_Room_ts');
+              if (hrComp && hrComp.playerNodes && hrComp.playerNodes.length > 0) {
+                this._isTournament = true;
+                this._holdemRoomComp = hrComp;
+                this._tournamentPlayerNodes = hrComp.playerNodes;
+                // Use holdem_room as gameMain equivalent for community card scanning
+                this._gameMain = holdemRoom;
+                this._ready = true;
+                console.log('[WPT] Tournament mode detected (' + hrComp.playerNodes.length + ' seats)');
+                return true;
+              }
+            }
+          }
+        }
+      }
+
+      return false;
     } catch (e) {
       console.warn('[WPT] Init nodes failed:', e.message);
       return false;
@@ -69,7 +102,7 @@ var CocosScraper = (function() {
       initAttempts++;
       if (self._initNodes()) {
         clearInterval(initTimer);
-        console.log('[WPT] Scraper ready after ' + initAttempts + ' attempt(s). Starting poll at ' + WPT.POLL_INTERVAL + 'ms');
+        console.log('[WPT] Scraper ready after ' + initAttempts + ' attempt(s) [' + (self._isTournament ? 'TOURNAMENT' : 'CASH') + ']. Starting poll at ' + WPT.POLL_INTERVAL + 'ms');
         self._startPolling();
       } else if (initAttempts % 30 === 0) {
         console.log('[WPT] Still waiting for Cocos game nodes... (' + initAttempts + ' attempts)');
@@ -151,6 +184,10 @@ var CocosScraper = (function() {
   // Scrape all player seats
   CocosScraper.prototype._scrapePlayers = function() {
     var players = [];
+
+    // ═══ Tournament mode: use Holdem_Player_ts components ═══
+    if (this._isTournament) return this._scrapeTournamentPlayers();
+
     if (!this._seatPanel) return players;
 
     // Build tableStates lookup by seatid for reliable bet fallback
@@ -312,6 +349,117 @@ var CocosScraper = (function() {
     return players;
   };
 
+  // ═══ Tournament player scraping ═══
+  CocosScraper.prototype._scrapeTournamentPlayers = function() {
+    var players = [];
+    if (!this._tournamentPlayerNodes) return players;
+
+    for (var i = 0; i < this._tournamentPlayerNodes.length; i++) {
+      var pNode = this._tournamentPlayerNodes[i];
+      if (!pNode || !pNode.active) continue;
+
+      var pc = pNode.getComponent('Holdem_Player_ts');
+      if (!pc) continue;
+
+      // Get name and chips from PlayerInfo component
+      var name = '';
+      var chips = '0';
+      try {
+        var infoComp = pc.info ? pc.info.getComponent('Holdem_PlayerInfo_ts') : null;
+        if (infoComp) {
+          name = infoComp.nameLabel ? (infoComp.nameLabel.string || '') : '';
+          chips = infoComp.coinLabel ? (infoComp.coinLabel.string || '0') : '0';
+        }
+      } catch (e) {}
+
+      name = name.replace(/\n/g, '');
+
+      // Determine status from state/actualState
+      // States: 0=waiting/idle, 1=active/acting, 2=acted, 4=folded
+      var state = pc.actualState !== undefined ? pc.actualState : pc.state;
+      var status = '';
+      var isFolded = pc.folded || state === 4;
+      if (isFolded) status = 'FOLD';
+      else if (state === 1) status = 'Waiting';
+      else status = '';
+
+      // Current bet from Holdem_Stake_ts on the stake node
+      var currentBet = 0;
+      try {
+        if (pc.stake) {
+          var stakeComp = pc.stake.getComponent('Holdem_Stake_ts');
+          if (stakeComp && stakeComp._value > 0) {
+            currentBet = stakeComp._value;
+          }
+        }
+        // Fallback: _deskCoin
+        if (currentBet === 0 && pc._deskCoin > 0) {
+          currentBet = pc._deskCoin;
+        }
+      } catch (e) {}
+
+      // Scrape cards from cardsHandler (component reference, not node)
+      var cards = [];
+      try {
+        var ch = pc.cardsHandler; // This IS the Holdem_CardsHandler_ts component
+        if (ch && ch._cards) {
+          for (var ci = 0; ci < ch._cards.length; ci++) {
+            var cardComp = ch._cards[ci];
+            if (!cardComp) continue;
+            var cardId = cardComp._cardId;
+            // _cardId is transient; fall back to sprite frame name
+            if (!cardId || cardId <= 0) {
+              cardId = this._readCardSpriteId(cardComp);
+            }
+            if (cardId && cardId > 0) {
+              var notation = CardUtils.fromCardId(cardId);
+              if (notation) cards.push(notation);
+            }
+          }
+        }
+      } catch (e) {}
+
+      var player = {
+        seatIndex: i,
+        name: name,
+        chips: parseFloat(chips.replace(/[^0-9.]/g, '')) || 0,
+        chipsDisplay: chips,
+        status: status,
+        normalizedAction: WPT.ACTION_MAP[status] || status.toLowerCase(),
+        seatStatus: isFolded ? WPT.SEAT_STATUS.FOLDED : WPT.SEAT_STATUS.PLAYING,
+        isOwner: false, // Spectator mode — no owner; playing mode would need detection
+        isEmpty: !name || name === 'Name' || name === '',
+        isFolded: isFolded,
+        isSittingOut: false,
+        cards: cards,
+        currentBet: currentBet,
+        screenX: 0,
+        screenY: 0,
+      };
+
+      // Screen coordinates for HUD badge placement
+      try {
+        var worldPos = pNode.convertToWorldSpaceAR(cc.v2(0, 0));
+        if (worldPos) {
+          var gameCanvas = document.getElementById('GameCanvas');
+          if (gameCanvas) {
+            var rect = gameCanvas.getBoundingClientRect();
+            var designW = cc.view.getDesignResolutionSize().width;
+            var designH = cc.view.getDesignResolutionSize().height;
+            var scaleX = rect.width / designW;
+            var scaleY = rect.height / designH;
+            player.screenX = rect.left + worldPos.x * scaleX;
+            player.screenY = rect.top + (designH - worldPos.y) * scaleY;
+          }
+        }
+      } catch (e) {}
+
+      players.push(player);
+    }
+
+    return players;
+  };
+
   // Scrape hole cards for a seat
   CocosScraper.prototype._scrapePlayerCards = function(seatNode) {
     var cards = [];
@@ -399,6 +547,11 @@ var CocosScraper = (function() {
 
   // Scrape community cards - comprehensive multi-strategy approach
   CocosScraper.prototype._scrapeCommunityCards = function() {
+    // ═══ Tournament mode: use publicCardsHandler ═══
+    if (this._isTournament && this._holdemRoomComp) {
+      return this._scrapeTournamentCommunityCards();
+    }
+
     var cards = [];
     var debugParts = [];
     try {
@@ -606,6 +759,59 @@ var CocosScraper = (function() {
     }
     this._lastBoardDebug = debugParts.join(' | ');
     return cards;
+  };
+
+  // ═══ Tournament community cards ═══
+  CocosScraper.prototype._scrapeTournamentCommunityCards = function() {
+    var cards = [];
+    try {
+      var pch = this._holdemRoomComp.publicCardsHandler;
+      if (pch && pch._cards) {
+        for (var i = 0; i < pch._cards.length; i++) {
+          var cardComp = pch._cards[i];
+          if (!cardComp) continue;
+          var cardId = cardComp._cardId;
+          // _cardId is transient (resets to 0 after animation). Try multiple sources:
+          // 1. _cardId on the component (if still set)
+          // 2. Sprite frame name on the "card" child node (persists while displayed)
+          if (!cardId || cardId <= 0) {
+            cardId = this._readCardSpriteId(cardComp);
+          }
+          if (cardId && cardId > 0) {
+            var notation = CardUtils.fromCardId(cardId);
+            if (notation) cards.push(notation);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[WPT] Tournament community card scrape error:', e.message);
+    }
+    this._lastBoardDebug = 'SRC:tournament publicCardsHandler cards=' + cards.length;
+    return cards;
+  };
+
+  // Read a card's ID from its sprite frame name (fallback when _cardId is 0).
+  // Only reads if the card is visually displayed (node opacity > 0, card child active).
+  CocosScraper.prototype._readCardSpriteId = function(cardComp) {
+    try {
+      if (!cardComp || !cardComp.node) return 0;
+      // Card node opacity 0 = hidden between hands (stale sprite)
+      if (cardComp.node.opacity === 0) return 0;
+      var children = cardComp.node.children;
+      for (var i = 0; i < children.length; i++) {
+        if (children[i]._name === 'card') {
+          // Card child inactive = not displayed
+          if (!children[i].active) return 0;
+          var sprite = children[i].getComponent(cc.Sprite);
+          if (sprite && sprite.spriteFrame && sprite.spriteFrame._name) {
+            var id = parseInt(sprite.spriteFrame._name);
+            if (!isNaN(id) && id > 0) return id;
+          }
+          break;
+        }
+      }
+    } catch (e) {}
+    return 0;
   };
 
   // Deep card extraction: checks ALL component properties, sprite names, etc.
@@ -948,6 +1154,29 @@ var CocosScraper = (function() {
 
   // Scrape pot amount
   CocosScraper.prototype._scrapePot = function() {
+    // ═══ Tournament mode ═══
+    if (this._isTournament && this._holdemRoomComp) {
+      try {
+        var hr = this._holdemRoomComp;
+        // Primary: potLabel (total pot display)
+        if (hr.potLabel && hr.potLabel.string) {
+          var potVal = parseFloat(hr.potLabel.string.replace(/[^0-9.]/g, '')) || 0;
+          if (potVal > 0) return potVal;
+        }
+        // Fallback: mainPotStake component
+        if (hr.mainPotStake) {
+          var stakeComp = hr.mainPotStake.getComponent('Holdem_Stake_ts');
+          if (stakeComp && stakeComp._value > 0) return stakeComp._value;
+        }
+        // Fallback: antePotLabel
+        if (hr.antePotLabel && hr.antePotLabel.string) {
+          var anteVal = parseFloat(hr.antePotLabel.string.replace(/[^0-9.]/g, '')) || 0;
+          if (anteVal > 0) return anteVal;
+        }
+      } catch (e) {}
+      return 0;
+    }
+
     var pot = 0;
     try {
       // Strategy 1: Main pool label
@@ -1008,6 +1237,44 @@ var CocosScraper = (function() {
 
   // Scrape blinds
   CocosScraper.prototype._scrapeBlinds = function() {
+    // ═══ Tournament mode: parse from roomInfo blind labels ═══
+    if (this._isTournament && this._holdemRoomComp) {
+      try {
+        var hr = this._holdemRoomComp;
+        // Try roomInfo component for blind level details
+        if (hr.roomInfo) {
+          var riComp = hr.roomInfo.getComponent ? hr.roomInfo.getComponent('Holdem_Room_Info_ts') : hr.roomInfo;
+          if (riComp && riComp.currentBlindValue) {
+            var blindText = riComp.currentBlindValue.string || riComp.currentBlindValue || '';
+            if (blindText) {
+              // Parse "300/600" or "300/600(70)" format
+              var match = blindText.match(/([\d,]+)\s*\/\s*([\d,]+)/);
+              if (match) {
+                return {
+                  text: blindText,
+                  sb: parseFloat(match[1].replace(/,/g, '')) || 0,
+                  bb: parseFloat(match[2].replace(/,/g, '')) || 0,
+                };
+              }
+            }
+          }
+        }
+        // Fallback: parse from riseBlindMessageDetailLabel
+        if (hr.riseBlindMessageDetailLabel && hr.riseBlindMessageDetailLabel.string) {
+          var text = hr.riseBlindMessageDetailLabel.string;
+          var m = text.match(/([\d,]+)\s*\/\s*([\d,]+)/);
+          if (m) {
+            return {
+              text: text,
+              sb: parseFloat(m[1].replace(/,/g, '')) || 0,
+              bb: parseFloat(m[2].replace(/,/g, '')) || 0,
+            };
+          }
+        }
+      } catch (e) {}
+      return { text: '?/?', sb: 0, bb: 0 };
+    }
+
     try {
       if (this._gameCtrl && this._gameCtrl.blindInfoLabel) {
         var text = this._gameCtrl.blindInfoLabel.string;
@@ -1064,6 +1331,9 @@ var CocosScraper = (function() {
 
   // Scrape hand number
   CocosScraper.prototype._scrapeHandNum = function() {
+    // Tournament mode: no direct hand number, return 0 (fallback detection in HandTracker)
+    if (this._isTournament) return 0;
+
     try {
       if (this._room && this._room._roomData) {
         var rd = this._room._roomData;
@@ -1079,6 +1349,17 @@ var CocosScraper = (function() {
 
   // Scrape hero seat index
   CocosScraper.prototype._scrapeHeroSeat = function() {
+    // Tournament mode: spectator has no hero seat; if playing, detect via info_self visibility
+    if (this._isTournament && this._tournamentPlayerNodes) {
+      for (var ti = 0; ti < this._tournamentPlayerNodes.length; ti++) {
+        var tpc = this._tournamentPlayerNodes[ti].getComponent('Holdem_Player_ts');
+        if (tpc && tpc.info_self && tpc.info_self.active && tpc.info !== tpc.info_other) {
+          return ti;
+        }
+      }
+      return -1;
+    }
+
     try {
       if (this._room && this._room._roomData) {
         return this._room._roomData.i32SelfSeat;
@@ -1097,6 +1378,11 @@ var CocosScraper = (function() {
 
   // Scrape dealer button position (map D_img position to nearest seat)
   CocosScraper.prototype._scrapeDealerSeat = function() {
+    // Tournament mode: dealerPos is stored directly
+    if (this._isTournament && this._holdemRoomComp) {
+      return typeof this._holdemRoomComp.dealerPos === 'number' ? this._holdemRoomComp.dealerPos : -1;
+    }
+
     try {
       var dImg = this._gameCtrl.D_img;
       if (!dImg || !dImg.active) return -1;
@@ -1128,6 +1414,17 @@ var CocosScraper = (function() {
 
   // Scrape action button state
   CocosScraper.prototype._scrapeActionState = function() {
+    // Tournament mode: check betButtonsContainer on Holdem_Room_ts
+    if (this._isTournament) {
+      try {
+        var hr = this._holdemRoomComp;
+        if (hr && hr.betButtonsContainer && hr.betButtonsContainer.active) {
+          return { active: true, raiseLabel: '', callAmount: '', raiseAmount: '' };
+        }
+      } catch (e) {}
+      return { active: false };
+    }
+
     try {
       var abc = this._gameCtrl.actionBtnControl;
       if (!abc) return { active: false };

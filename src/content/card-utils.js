@@ -15,6 +15,26 @@ var CardUtils = (function() {
     return rank + suit;
   }
 
+  // Convert tournament cardId (bit-pattern encoding) to standard notation.
+  // Encoding: suitBit | rank, where rank is 2-14 (2=2..14=A)
+  // Suit bits: 0x10=diamonds, 0x20=clubs, 0x40=hearts, 0x80=spades
+  // Valid IDs: 18-30 (diamonds), 34-46 (clubs), 66-78 (hearts), 130-142 (spades)
+  var CARD_ID_SUIT_BITS = [0x10, 0x20, 0x40, 0x80];
+  var CARD_ID_SUIT_CHARS = ['d', 'c', 'h', 's'];
+  // Rank 2-14 maps to RANKS index 0-12
+  function fromCardId(cardId) {
+    if (!cardId || cardId <= 0) return null;
+    var rank = cardId & 0x0F;
+    if (rank < 2 || rank > 14) return null;
+    var suitBit = cardId & 0xF0;
+    var suitIdx = CARD_ID_SUIT_BITS.indexOf(suitBit);
+    if (suitIdx < 0) return null;
+    var rankStr = RANKS[rank - 2]; // rank 2 → index 0, rank 14 → index 12
+    var suitStr = CARD_ID_SUIT_CHARS[suitIdx];
+    if (rankStr && suitStr) return rankStr + suitStr;
+    return null;
+  }
+
   // Get rank index (0=2, 1=3, ..., 12=A) from standard notation
   function rankIndex(card) {
     return RANKS.indexOf(card[0]);
@@ -114,6 +134,7 @@ var CardUtils = (function() {
     SUITS: SUITS,
     PRIMES: PRIMES,
     fromCocos: fromCocos,
+    fromCardId: fromCardId,
     rankIndex: rankIndex,
     suit: suit,
     suitIndex: suitIndex,

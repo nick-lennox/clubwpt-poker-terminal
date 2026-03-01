@@ -259,7 +259,22 @@
       }
 
       // ═══ POT ODDS + RECOMMENDATION (every tick) ═══
-      if (lastEquity && heroCards.length === 2) {
+      // Check if hero has folded — no recommendation if we're out of the hand
+      var heroFolded = false;
+      if (handTracker.currentHand) {
+        var heroSeat = handTracker.currentHand.heroSeatIndex;
+        for (var hfi = 0; hfi < handTracker.currentHand.players.length; hfi++) {
+          if (handTracker.currentHand.players[hfi].seatIndex === heroSeat) {
+            heroFolded = handTracker.currentHand.players[hfi].isFolded;
+            break;
+          }
+        }
+      }
+
+      if (heroFolded) {
+        terminalUI.updateRecommendation(null);
+        terminalUI.updatePotOdds(null);
+      } else if (lastEquity && heroCards.length === 2) {
         var potOdds = advisor.getPotOdds(gsEffective, lastEquity);
         terminalUI.updatePotOdds(potOdds);
 

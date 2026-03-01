@@ -63,17 +63,16 @@ var CocosScraper = (function() {
     var self = this;
     console.log('[WPT] Scraper starting...');
 
-    // Try to init immediately, retry if not ready
+    // Try to init immediately, retry until ready (game may take a while to load)
     var initAttempts = 0;
     var initTimer = setInterval(function() {
       initAttempts++;
       if (self._initNodes()) {
         clearInterval(initTimer);
-        console.log('[WPT] Scraper ready. Starting poll at ' + WPT.POLL_INTERVAL + 'ms');
+        console.log('[WPT] Scraper ready after ' + initAttempts + ' attempt(s). Starting poll at ' + WPT.POLL_INTERVAL + 'ms');
         self._startPolling();
-      } else if (initAttempts > 30) {
-        clearInterval(initTimer);
-        console.error('[WPT] Failed to find Cocos game nodes after 30 attempts');
+      } else if (initAttempts % 30 === 0) {
+        console.log('[WPT] Still waiting for Cocos game nodes... (' + initAttempts + ' attempts)');
       }
     }, 1000);
   };

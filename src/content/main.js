@@ -37,7 +37,7 @@
       statsEngine = new PlayerStats(storage);
       equityBridge.init();
       terminalUI.init();
-      terminalUI.updateStatus('INITIALIZING...');
+      terminalUI.updateStatus('WAITING FOR TABLE');
       terminalUI._onSessionReset = function() {
         sessionTracker.reset();
         terminalUI.updateSession(sessionTracker.getStats());

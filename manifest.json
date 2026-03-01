@@ -16,20 +16,17 @@
   "content_scripts": [
     {
       "matches": [
-        "https://clubwptgold.com/game/*",
-        "https://*.clubwptgold.com/game/*"
+        "https://clubwptgold.com/game/*"
       ],
       "js": [
         "src/content/bridge-isolated.js"
       ],
       "run_at": "document_idle",
-      "world": "ISOLATED",
-      "all_frames": true
+      "world": "ISOLATED"
     },
     {
       "matches": [
-        "https://clubwptgold.com/game/*",
-        "https://*.clubwptgold.com/game/*"
+        "https://clubwptgold.com/game/*"
       ],
       "js": [
         "src/content/config.js",
@@ -53,8 +50,7 @@
         "styles/terminal.css"
       ],
       "run_at": "document_idle",
-      "world": "MAIN",
-      "all_frames": true
+      "world": "MAIN"
     }
   ],
   "action": {
@@ -67,8 +63,7 @@
         "src/workers/hand-evaluator.js"
       ],
       "matches": [
-        "https://clubwptgold.com/*",
-        "https://*.clubwptgold.com/*"
+        "https://clubwptgold.com/*"
       ]
     }
   ]
